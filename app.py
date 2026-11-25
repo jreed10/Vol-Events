@@ -1,10 +1,14 @@
-
 import json
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # very old Python
+    ZoneInfo = None
 
 
 # ==================================================
@@ -19,36 +23,91 @@ st.set_page_config(
 
 EVENTS_FILE = Path(__file__).parent / "events.json"
 EVENTS_URL = "https://calendar.utk.edu/"
+CAMPUS_TIMEZONE = "America/New_York"
+PAGE_SIZE = 2
+
+REQUIRED_FIELDS = {
+    "title", "category", "days_from_today",
+    "time", "location", "description"
+}
+
+UNCHANGED = object()   # "no category found in this message"
+PAST_DATE = object()   # "user asked for a date that already passed"
+
+
+def get_today():
+    """Today's date on campus (not the server's timezone)."""
+
+    if ZoneInfo is not None:
+        try:
+            return datetime.now(ZoneInfo(CAMPUS_TIMEZONE)).date()
+        except Exception:
+            pass
+
+    return date.today()
 
 
 # ==================================================
 # 2. EVENT DATABASE
 # ==================================================
 
+def start_minutes(time_text):
+    """Convert the start of '7:00 PM' / '10:00 AM - 5:00 PM' to minutes."""
+
+    match = re.match(
+        r"\s*(\d{1,2}):(\d{2})\s*(AM|PM)", time_text, re.IGNORECASE
+    )
+
+    if not match:
+        return 24 * 60
+
+    hour = int(match.group(1)) % 12
+    minute = int(match.group(2))
+
+    if match.group(3).upper() == "PM":
+        hour += 12
+
+    return hour * 60 + minute
+
+
 def load_events():
-    """Load sample events from the JSON database."""
+    """Load sample events. Returns (events, error_message)."""
 
     try:
         with open(EVENTS_FILE, "r", encoding="utf-8") as file:
             records = json.load(file)
+    except FileNotFoundError:
+        return [], f"Could not find {EVENTS_FILE.name} next to app.py."
+    except json.JSONDecodeError as error:
+        return [], f"{EVENTS_FILE.name} contains invalid JSON: {error}"
 
-        today = date.today()
-        events = []
+    if not isinstance(records, list):
+        return [], f"{EVENTS_FILE.name} must contain a list of events."
 
-        for record in records:
-            event = record.copy()
-            event["date"] = today + timedelta(
-                days=event["days_from_today"]
-            )
-            events.append(event)
+    today = get_today()
+    events = []
 
-        return sorted(events, key=lambda event: event["date"])
+    for record in records:
+        if not isinstance(record, dict) or not REQUIRED_FIELDS.issubset(record):
+            continue
 
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+        try:
+            offset = int(record["days_from_today"])
+        except (TypeError, ValueError):
+            continue
+
+        event = record.copy()
+        event["date"] = today + timedelta(days=offset)
+        events.append(event)
+
+    events.sort(
+        key=lambda event: (event["date"], start_minutes(event["time"]))
+    )
+
+    return events, None
 
 
-EVENTS = load_events()
+EVENTS, EVENTS_ERROR = load_events()
 
 
 # ==================================================
@@ -64,117 +123,222 @@ CATEGORIES = {
     "Event Locations": "Event Locations"
 }
 
+CATEGORY_NAMES = {
+    "Athletics": "athletics",
+    "Student Organizations": "student organization",
+    "Arts & Entertainment": "arts & entertainment",
+    "Campus Activities": "campus activity",
+    "Event Locations": "campus"
+}
+
 CATEGORY_KEYWORDS = {
     "Athletics": [
         "athletics", "athletic", "sports", "sport",
         "basketball", "football", "volleyball",
         "baseball", "game", "games", "team", "teams",
-        "vols", "lady vols"
+        "lady vols", "intramural", "intramurals"
     ],
 
     "Student Organizations": [
         "organization", "organizations", "club", "clubs",
         "student group", "student groups", "get involved",
-        "student involvement", "join a club"
+        "student involvement", "join a club", "leadership"
     ],
 
     "Arts & Entertainment": [
         "arts", "art", "music", "concert", "concerts",
         "performance", "performances", "entertainment",
-        "theater", "theatre", "exhibition", "exhibitions"
+        "theater", "theatre", "exhibition", "exhibitions",
+        "gallery"
     ],
 
     "Campus Activities": [
         "activities", "activity", "workshop", "workshops",
         "lecture", "lectures", "volunteer", "social",
-        "community service", "wellness", "coffee"
+        "community service", "wellness", "coffee", "speaker"
     ]
 }
+
+LOCATION_TERMS = [
+    "location", "locations", "where", "venue", "venues"
+]
+
+GENERIC_TERMS = [
+    "upcoming events", "upcoming", "all events", "events",
+    "what's happening", "what is happening",
+    "anything happening", "what's going on", "whats going on"
+]
+
+GENERAL_INTEREST_TERMS = [
+    "something fun", "something interesting", "something to do",
+    "things to do", "fun things", "anything fun",
+    "with friends", "activities to do"
+]
+
+UNSUPPORTED_TOPICS = [
+    "register for classes", "financial aid", "course registration",
+    "class schedule", "tuition", "academic advising"
+]
+
+GREETING_RE = re.compile(
+    r"^(hi|hello|hey|howdy|hiya|yo|good (morning|afternoon|evening))"
+    r"( there| vols?| everyone)?$"
+)
+MORE_RE = re.compile(
+    r"\b(more|another(?! (?:date|day|time|category|topic))|additional|"
+    r"other options|other events|next one|next page|keep going)\b"
+)
+AFFIRM_RE = re.compile(
+    r"^(yes|yeah|yep|yup|sure|ok|okay|please|absolutely|definitely|"
+    r"go ahead|sounds good|show me|why not)( please| thanks)?$"
+)
+NEGATIVE_RE = re.compile(
+    r"^(no|nope|nah|no thanks|no thank you|not really|i'm good|im good)$"
+)
+THANKS_RE = re.compile(r"\b(thanks|thank you|thx|appreciate it)\b")
+BYE_RE = re.compile(r"\b(bye|goodbye|see you|see ya|go vols)\b")
+HELP_RE = re.compile(r"\b(help|what can you do|how does this work)\b")
+TICKET_RE = re.compile(
+    r"(register for (an|the|this) event|sign me up|rsvp|"
+    r"\b(buy|purchase|get|order)\b.*\btickets?\b)"
+)
+CLEAR_DATE_RE = re.compile(
+    r"\b(anytime|any time|any date|any day|all dates|whenever|"
+    r"clear (?:the )?(?:date|dates|filter|filters)|remove (?:the )?date)\b"
+)
+
+
+def has_term(text, terms):
+    """Whole-word / whole-phrase matching (so 'art' won't match 'party')."""
+
+    return any(
+        re.search(rf"\b{re.escape(term)}\b", text) for term in terms
+    )
 
 
 # ==================================================
 # 4. DATE RECOGNITION
 # ==================================================
 
-def get_date_range(message):
-    """Recognize common date preferences."""
+WEEKDAYS = [
+    "monday", "tuesday", "wednesday", "thursday",
+    "friday", "saturday", "sunday"
+]
 
-    text = message.lower()
-    today = date.today()
+MONTHS = {
+    "january": 1, "jan": 1, "february": 2, "feb": 2,
+    "march": 3, "mar": 3, "april": 4, "apr": 4, "may": 5,
+    "june": 6, "jun": 6, "july": 7, "jul": 7,
+    "august": 8, "aug": 8, "september": 9, "sept": 9, "sep": 9,
+    "october": 10, "oct": 10, "november": 11, "nov": 11,
+    "december": 12, "dec": 12
+}
 
-    if "today" in text:
+MONTH_PATTERN = re.compile(
+    r"\b(" + "|".join(sorted(MONTHS, key=len, reverse=True)) +
+    r")\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b"
+)
+
+
+def single_day(selected, today, roll_forward=False):
+    """Build a (start, end, label) tuple for one day."""
+
+    if selected < today:
+        if roll_forward:
+            try:
+                selected = selected.replace(year=selected.year + 1)
+            except ValueError:
+                return PAST_DATE
+        else:
+            return PAST_DATE
+
+    return selected, selected, f"{selected:%B} {selected.day}"
+
+
+def get_date_range(text, today):
+    """Recognize common date preferences.
+
+    Returns (start, end, label), PAST_DATE, or None.
+    """
+
+    if re.search(r"\b(today|tonight|this evening)\b", text):
         return today, today, "today"
 
-    if "tomorrow" in text:
+    if re.search(r"\btomorrow\b", text):
         tomorrow = today + timedelta(days=1)
         return tomorrow, tomorrow, "tomorrow"
 
-    if "this weekend" in text or "weekend" in text:
-        days_until_saturday = (5 - today.weekday()) % 7
+    if re.search(r"\bnext weekend\b", text):
+        monday = today + timedelta(days=7 - today.weekday())
+        saturday = monday + timedelta(days=5)
+        return saturday, saturday + timedelta(days=1), "next weekend"
 
-        if today.weekday() == 6:
-            saturday = today
-            sunday = today
-        else:
-            saturday = today + timedelta(days=days_until_saturday)
-            sunday = saturday + timedelta(days=1)
+    if re.search(r"\bweekend\b", text):
+        if today.weekday() == 6:  # Sunday
+            return today, today, "this weekend"
 
-        return saturday, sunday, "this weekend"
+        saturday = today + timedelta(days=(5 - today.weekday()) % 7)
+        return saturday, saturday + timedelta(days=1), "this weekend"
 
-    if "next week" in text:
-        days_until_monday = 7 - today.weekday()
-        monday = today + timedelta(days=days_until_monday)
-        sunday = monday + timedelta(days=6)
+    if re.search(r"\bnext week\b", text):
+        monday = today + timedelta(days=7 - today.weekday())
+        return monday, monday + timedelta(days=6), "next week"
 
-        return monday, sunday, "next week"
+    if re.search(r"\bthis week\b", text):
+        sunday = today + timedelta(days=6 - today.weekday())
+        return today, sunday, "this week"
 
-    # Recognize dates such as 12/15 or 2026-12-15
-    patterns = [
-        (r"\b\d{4}-\d{2}-\d{2}\b", "%Y-%m-%d"),
-        (r"\b\d{1,2}/\d{1,2}(?:/\d{4})?\b", None)
-    ]
+    # 2026-12-15
+    match = re.search(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", text)
+    if match:
+        try:
+            selected = date(
+                int(match.group(1)), int(match.group(2)), int(match.group(3))
+            )
+        except ValueError:
+            return None
+        return single_day(selected, today)
 
-    for pattern, date_format in patterns:
-        match = re.search(pattern, text)
+    # 12/15 or 12/15/2026
+    match = re.search(r"\b(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?\b", text)
+    if match:
+        try:
+            month, day = int(match.group(1)), int(match.group(2))
+            year_text = match.group(3)
 
-        if match:
-            try:
-                value = match.group()
+            if year_text:
+                year = int(year_text)
+                if year < 100:
+                    year += 2000
+                return single_day(date(year, month, day), today)
 
-                if date_format:
-                    selected = datetime.strptime(
-                        value, date_format
-                    ).date()
+            return single_day(
+                date(today.year, month, day), today, roll_forward=True
+            )
+        except ValueError:
+            return None
 
-                else:
-                    parts = value.split("/")
-                    month = int(parts[0])
-                    day = int(parts[1])
+    # December 3 / Dec 3rd
+    match = MONTH_PATTERN.search(text)
+    if match:
+        try:
+            selected = date(
+                today.year, MONTHS[match.group(1)], int(match.group(2))
+            )
+        except ValueError:
+            return None
+        return single_day(selected, today, roll_forward=True)
 
-                    year = (
-                        int(parts[2])
-                        if len(parts) == 3
-                        else today.year
-                    )
+    # Saturday, friday, ...
+    match = re.search(r"\b(" + "|".join(WEEKDAYS) + r")\b", text)
+    if match:
+        target = WEEKDAYS.index(match.group(1))
+        selected = today + timedelta(days=(target - today.weekday()) % 7)
 
-                    selected = date(year, month, day)
+        if selected == today:
+            return today, today, "today"
 
-                    if len(parts) == 2 and selected < today:
-                        selected = selected.replace(
-                            year=today.year + 1
-                        )
-
-                if selected < today:
-                    return None
-
-                return (
-                    selected,
-                    selected,
-                    selected.strftime("%B %d")
-                )
-
-            except ValueError:
-                return None
+        return selected, selected, selected.strftime("%A")
 
     return None
 
@@ -183,41 +347,35 @@ def get_date_range(message):
 # 5. INTENT RECOGNITION
 # ==================================================
 
-def detect_category(message):
-    """Identify the category the user is interested in."""
+def detect_category(text, allow_generic=True):
+    """Identify the category the user is interested in.
 
-    text = message.lower()
-
-    if any(word in text for word in [
-        "location", "locations", "where", "venue", "venues"
-    ]):
-        return "Event Locations"
+    Returns a category name, None (all events), or UNCHANGED.
+    """
 
     for category, keywords in CATEGORY_KEYWORDS.items():
-        if any(keyword in text for keyword in keywords):
+        if has_term(text, keywords):
             return category
 
-    if any(phrase in text for phrase in [
-        "upcoming events",
-        "all events",
-        "what's happening",
-        "what is happening",
-        "anything happening",
-        "what's going on"
-    ]):
+    if has_term(text, LOCATION_TERMS):
+        return "Event Locations"
+
+    if allow_generic and has_term(text, GENERIC_TERMS):
         return None
 
-    return "UNCHANGED"
+    return UNCHANGED
 
 
 # ==================================================
 # 6. EVENT FILTERING
 # ==================================================
 
-def find_events(category=None, date_range=None):
+def find_events(category=None, date_range=None, today=None):
     """Filter the event database based on user preferences."""
 
-    results = EVENTS.copy()
+    today = today or get_today()
+
+    results = [event for event in EVENTS if event["date"] >= today]
 
     if category and category != "Event Locations":
         results = [
@@ -240,13 +398,27 @@ def find_events(category=None, date_range=None):
 # 7. EVENT PRESENTATION
 # ==================================================
 
-def format_event(event):
+def relative_day(event_date, today):
+    days = (event_date - today).days
+
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "tomorrow"
+
+    return f"in {days} days"
+
+
+def format_event(event, today):
     """Format event information for chatbot responses."""
+
+    event_date = event["date"]
 
     return (
         f"### {event['title']}\n\n"
         f"📅 **Date:** "
-        f"{event['date'].strftime('%A, %B %d, %Y')}  \n"
+        f"{event_date:%A, %B} {event_date.day}, {event_date.year} "
+        f"({relative_day(event_date, today)})  \n"
         f"🕒 **Time:** {event['time']}  \n"
         f"📍 **Location:** {event['location']}\n\n"
         f"{event['description']}\n\n"
@@ -286,222 +458,99 @@ def get_introduction(category):
 
 
 # ==================================================
-# 8. CONVERSATION RESPONSE LOGIC
+# 8. RESPONSE BUILDERS
 # ==================================================
 
-def generate_response(message):
-    """Generate a contextual response based on user input."""
+def build_locations_response(date_range, today):
+    """List venues and the events happening at each."""
 
-    text = message.lower().strip()
+    results = find_events(date_range=date_range, today=today)
 
-    # ------------------------------------------------
-    # GREETINGS
-    # ------------------------------------------------
-
-    if text in [
-        "hi", "hello", "hey", "good morning",
-        "good afternoon", "good evening"
-    ]:
+    if not results:
+        period = f" during {date_range[2]}" if date_range else ""
         return (
-            "Hey there! Welcome to **Vol Events! 🍊**\n\n"
-            "I'm here to help you discover what's happening "
-            "around the University of Tennessee.\n\n"
-            "Are you interested in athletics, campus activities, "
-            "student organizations or something else?"
+            f"I couldn't find any event locations{period} in my "
+            "available information.\n\n"
+            "Would you like to explore another date or "
+            "event category?"
         )
 
-    # ------------------------------------------------
-    # OUT-OF-SCOPE QUESTIONS
-    # ------------------------------------------------
+    by_location = {}
+    for event in results:
+        by_location.setdefault(event["location"], []).append(event)
 
-    unsupported_topics = [
-        "register for classes",
-        "financial aid",
-        "course registration",
-        "class schedule",
-        "tuition",
-        "academic advising"
-    ]
-
-    if any(topic in text for topic in unsupported_topics):
-        return (
-            "That's outside my area of expertise!\n\n"
-            "I'm designed to help with UTK campus events and "
-            "activities. I can help you discover sporting events, "
-            "student organizations, performances and other "
-            "campus activities."
+    lines = []
+    for location in sorted(by_location):
+        titles = ", ".join(
+            f"{event['title']} ({event['date']:%b} {event['date'].day})"
+            for event in by_location[location]
         )
+        lines.append(f"📍 **{location}** — {titles}")
 
-    # ------------------------------------------------
-    # EVENT REGISTRATION AND TICKETS
-    # ------------------------------------------------
+    header = "Here are the campus locations hosting events"
+    if date_range:
+        header += f" during **{date_range[2]}**"
 
-    if any(phrase in text for phrase in [
-        "register for an event",
-        "sign me up",
-        "buy tickets",
-        "purchase tickets"
-    ]):
-        return (
-            "I can help you discover events, but I can't "
-            "register you or purchase tickets.\n\n"
-            "Please visit the official event page for "
-            "participation and ticket information."
-        )
+    return (
+        header + ":\n\n"
+        + "\n\n".join(lines)
+        + "\n\nPick an event category if you'd like to see "
+        "details for a specific activity."
+    )
 
-    # ------------------------------------------------
-    # REQUESTS FOR MORE EVENTS
-    # ------------------------------------------------
 
-    wants_more = any(phrase in text for phrase in [
-        "more",
-        "show me more",
-        "more options",
-        "other options",
-        "another event",
-        "additional events"
-    ])
-
-    # ------------------------------------------------
-    # CATEGORY RECOGNITION
-    # ------------------------------------------------
-
-    detected_category = detect_category(message)
-
-    if detected_category != "UNCHANGED":
-
-        if detected_category != st.session_state.category:
-            st.session_state.event_offset = 0
-
-        st.session_state.category = detected_category
-
-    # ------------------------------------------------
-    # DATE RECOGNITION
-    # ------------------------------------------------
-
-    detected_date = get_date_range(message)
-
-    if detected_date:
-
-        if detected_date != st.session_state.date_range:
-            st.session_state.event_offset = 0
-
-        st.session_state.date_range = detected_date
-
-    # ------------------------------------------------
-    # HANDLE MORE REQUESTS
-    # ------------------------------------------------
-
-    if wants_more:
-        st.session_state.event_offset += 2
-
-    # ------------------------------------------------
-    # RETRIEVE CONVERSATION PREFERENCES
-    # ------------------------------------------------
+def build_event_response(wants_more, filters_changed, today):
+    """Build the event recommendation response from session state."""
 
     category = st.session_state.category
     date_range = st.session_state.date_range
 
-    # ------------------------------------------------
-    # GENERAL INTEREST / CLARIFICATION
-    # ------------------------------------------------
-
-    general_interest = any(phrase in text for phrase in [
-        "something fun",
-        "something interesting",
-        "something to do",
-        "things to do",
-        "fun things",
-        "anything fun",
-        "with friends",
-        "activities to do"
-    ])
-
-    if (
-        general_interest
-        and category is None
-        and not wants_more
-    ):
-        return (
-            "I'd love to help you find something to do! 🍊\n\n"
-            "What kind of experience are you looking for?\n\n"
-            "- Sporting events and athletics\n"
-            "- Student organizations and clubs\n"
-            "- Arts, music and entertainment\n"
-            "- Social activities and campus events\n\n"
-            "You can also tell me when you're looking to attend!"
-        )
-
-    # ------------------------------------------------
-    # EVENT LOCATIONS
-    # ------------------------------------------------
-
     if category == "Event Locations":
+        st.session_state.awaiting_more = False
+        return build_locations_response(date_range, today)
 
-        results = find_events(date_range=date_range)
+    results = find_events(category, date_range, today)
 
-        if not results:
-            return (
-                "I couldn't find any event locations in my "
-                "available information for that time period.\n\n"
-                "Would you like to explore another date or "
-                "event category?"
-            )
-
-        locations = sorted(set(
-            event["location"] for event in results
-        ))
-
-        return (
-            "Here are some campus locations associated with "
-            "events in my available information:\n\n"
-            + "\n".join(
-                f"📍 **{location}**"
-                for location in locations[:6]
-            )
-            + "\n\nSelect an event category if you'd like "
-            "to see specific activities happening at these venues."
-        )
-
-    # ------------------------------------------------
-    # FIND MATCHING EVENTS
-    # ------------------------------------------------
-
-    results = find_events(category, date_range)
-
-    # ------------------------------------------------
-    # NO MATCHING EVENTS
-    # ------------------------------------------------
-
+    # ---- No matching events ----
     if not results:
+        st.session_state.awaiting_more = False
 
-        category_name = (
-            category.lower() if category else "campus"
-        )
-
+        category_name = CATEGORY_NAMES.get(category, "campus")
         date_description = (
-            f" during {date_range[2]}"
-            if date_range else ""
+            f" during {date_range[2]}" if date_range else ""
         )
 
-        return (
+        response = (
             f"I couldn't find any upcoming {category_name} "
             f"events{date_description} in my available "
-            "event information.\n\n"
-            "Would you like me to explore a different event "
+            "event information."
+        )
+
+        if date_range:
+            later = find_events(category, None, today)
+            if later:
+                nxt = later[0]
+                response += (
+                    f"\n\nThe next one I have is **{nxt['title']}** on "
+                    f"{nxt['date']:%A, %B} {nxt['date'].day}. "
+                    "Say **\"any date\"** to see everything coming up."
+                )
+
+        return response + (
+            "\n\nWould you like me to explore a different event "
             "category or look at another date?"
         )
 
-    # ------------------------------------------------
-    # SELECT RECOMMENDATIONS
-    # ------------------------------------------------
+    # ---- Paging ----
+    if wants_more and not filters_changed:
+        offset = st.session_state.event_offset
+    else:
+        offset = 0
 
-    offset = st.session_state.event_offset
-
-    selected = results[offset:offset + 2]
+    selected = results[offset:offset + PAGE_SIZE]
 
     if not selected:
-
+        st.session_state.awaiting_more = False
         return (
             "You've now seen all the matching events in my "
             "available event information! 🍊\n\n"
@@ -509,41 +558,34 @@ def generate_response(message):
             "change your date preferences?"
         )
 
-    # ------------------------------------------------
-    # BUILD RESPONSE
-    # ------------------------------------------------
+    st.session_state.event_offset = offset + len(selected)
 
+    # ---- Build response ----
     response = get_introduction(category)
 
     if date_range:
         response += (
             f"\n\nThese events match your search for "
-            f"**{date_range[2]}**."
+            f"**{date_range[2]}**. "
+            "(Say \"any date\" to clear this.)"
         )
 
     response += "\n\n"
 
     for event in selected:
-        response += format_event(event) + "\n\n---\n\n"
+        response += format_event(event, today) + "\n\n---\n\n"
 
-    # ------------------------------------------------
-    # FOLLOW-UP SUGGESTIONS
-    # ------------------------------------------------
-
-    remaining = len(results) - (
-        offset + len(selected)
-    )
+    remaining = len(results) - st.session_state.event_offset
 
     if remaining > 0:
-
+        st.session_state.awaiting_more = True
         response += (
             "Would you like to see more options? "
             "I can find additional events that match "
             "your interests."
         )
-
     else:
-
+        st.session_state.awaiting_more = False
         response += (
             "That's everything I found matching your "
             "preferences.\n\n"
@@ -555,11 +597,156 @@ def generate_response(message):
 
 
 # ==================================================
-# 9. CONVERSATION MANAGEMENT
+# 9. CONVERSATION RESPONSE LOGIC
+# ==================================================
+
+def generate_response(message):
+    """Generate a contextual response based on user input."""
+
+    today = get_today()
+    text = message.lower().strip().replace("’", "'")
+    clean = " ".join(re.sub(r"[^\w\s']", " ", text).split())
+
+    # ---- Greetings ----
+    if GREETING_RE.match(clean):
+        return (
+            "Hey there! Welcome to **Vol Events! 🍊**\n\n"
+            "I'm here to help you discover what's happening "
+            "around the University of Tennessee.\n\n"
+            "Are you interested in athletics, campus activities, "
+            "student organizations or something else?"
+        )
+
+    # ---- Out-of-scope questions ----
+    if any(topic in text for topic in UNSUPPORTED_TOPICS):
+        return (
+            "That's outside my area of expertise!\n\n"
+            "I'm designed to help with UTK campus events and "
+            "activities. I can help you discover sporting events, "
+            "student organizations, performances and other "
+            "campus activities."
+        )
+
+    # ---- Registration and tickets ----
+    if TICKET_RE.search(text):
+        return (
+            "I can help you discover events, but I can't "
+            "register you or purchase tickets.\n\n"
+            "Please visit the official event page for "
+            "participation and ticket information."
+        )
+
+    # ---- Event data unavailable ----
+    if not EVENTS:
+        return (
+            "I'm having trouble loading my event information "
+            "right now. Please check the official UTK calendar "
+            "in the sidebar in the meantime."
+        )
+
+    # ---- "More" requests ----
+    wants_more = bool(MORE_RE.search(text))
+
+    if st.session_state.awaiting_more and AFFIRM_RE.match(clean):
+        wants_more = True
+
+    previous = (st.session_state.category, st.session_state.date_range)
+    recognized = wants_more
+
+    # ---- Category ----
+    detected_category = detect_category(text, allow_generic=not wants_more)
+
+    if detected_category is not UNCHANGED:
+        st.session_state.category = detected_category
+        recognized = True
+
+    # ---- Date ----
+    if CLEAR_DATE_RE.search(text):
+        st.session_state.date_range = None
+        recognized = True
+
+    detected_date = get_date_range(text, today)
+
+    if detected_date is PAST_DATE:
+        return (
+            "That date has already passed! I can only show "
+            "upcoming events. Try a date from today onward, "
+            "or ask for \"this weekend\" or \"next week\"."
+        )
+
+    if detected_date:
+        st.session_state.date_range = detected_date
+        recognized = True
+
+    filters_changed = (
+        st.session_state.category,
+        st.session_state.date_range
+    ) != previous
+
+    # ---- General interest: ask what kind of event ----
+    if (
+        any(term in text for term in GENERAL_INTEREST_TERMS)
+        and st.session_state.category is None
+        and detected_date is None
+        and not wants_more
+    ):
+        st.session_state.awaiting_more = False
+        return (
+            "I'd love to help you find something to do! 🍊\n\n"
+            "What kind of experience are you looking for?\n\n"
+            "- Sporting events and athletics\n"
+            "- Student organizations and clubs\n"
+            "- Arts, music and entertainment\n"
+            "- Social activities and campus events\n\n"
+            "You can also tell me when you're looking to attend!"
+        )
+
+    # ---- Nothing recognized ----
+    if not recognized:
+        was_waiting = st.session_state.awaiting_more
+        st.session_state.awaiting_more = False
+
+        if NEGATIVE_RE.match(clean) and was_waiting:
+            return (
+                "No problem! Let me know if you'd like to look at "
+                "another category or a different date. 🍊"
+            )
+
+        if THANKS_RE.search(text):
+            return "You're welcome! Let me know if you want to find anything else. 🍊"
+
+        if BYE_RE.search(text):
+            return "Go Vols! 🍊 Come back any time to find more events."
+
+        if HELP_RE.search(text):
+            return (
+                "I can help you find UTK events! Try asking things like:\n\n"
+                "- \"Any sports this weekend?\"\n"
+                "- \"Show me clubs\"\n"
+                "- \"Music events tomorrow\"\n"
+                "- \"What's happening on Saturday?\"\n\n"
+                "You can also use the buttons below."
+            )
+
+        return (
+            "I'm not sure I understood that. 🍊\n\n"
+            "I can help you find campus events by category "
+            "(athletics, student organizations, arts, campus "
+            "activities) and by date (today, this weekend, "
+            "Saturday, 12/3...).\n\n"
+            "Try something like **\"sports this weekend\"** or "
+            "tap one of the buttons below."
+        )
+
+    return build_event_response(wants_more, filters_changed, today)
+
+
+# ==================================================
+# 10. CONVERSATION MANAGEMENT
 # ==================================================
 
 def handle_message(message):
-    """Store messages and generate chatbot responses."""
+    """Store a typed message and generate the chatbot response."""
 
     st.session_state.messages.append({
         "role": "user",
@@ -574,8 +761,47 @@ def handle_message(message):
     })
 
 
+def handle_button(label):
+    """Quick-reply buttons always start a fresh search."""
+
+    st.session_state.messages.append({
+        "role": "user",
+        "content": label
+    })
+
+    st.session_state.category = CATEGORIES[label]
+    st.session_state.date_range = None
+    st.session_state.event_offset = 0
+    st.session_state.awaiting_more = False
+
+    response = build_event_response(
+        wants_more=False,
+        filters_changed=True,
+        today=get_today()
+    )
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": response
+    })
+
+
+def reset_conversation():
+    st.session_state.messages = [{
+        "role": "assistant",
+        "content": (
+            "Welcome back to Vol Events! 🍊\n\n"
+            "What would you like to explore?"
+        )
+    }]
+    st.session_state.category = None
+    st.session_state.date_range = None
+    st.session_state.event_offset = 0
+    st.session_state.awaiting_more = False
+
+
 # ==================================================
-# 10. INITIALIZE SESSION STATE
+# 11. INITIALIZE SESSION STATE
 # ==================================================
 
 if "messages" not in st.session_state:
@@ -601,9 +827,12 @@ if "date_range" not in st.session_state:
 if "event_offset" not in st.session_state:
     st.session_state.event_offset = 0
 
+if "awaiting_more" not in st.session_state:
+    st.session_state.awaiting_more = False
+
 
 # ==================================================
-# 11. SIDEBAR
+# 12. SIDEBAR
 # ==================================================
 
 with st.sidebar:
@@ -634,28 +863,31 @@ with st.sidebar:
 
     st.markdown("---")
 
+    st.subheader("Current Search")
+
+    st.caption(
+        f"Category: {st.session_state.category or 'All events'}"
+    )
+    st.caption(
+        "Date: "
+        + (
+            st.session_state.date_range[2]
+            if st.session_state.date_range else "Any date"
+        )
+    )
+
+    st.markdown("---")
+
     if st.button(
         "Start New Conversation",
         use_container_width=True
     ):
-
-        st.session_state.messages = [{
-            "role": "assistant",
-            "content": (
-                "Welcome back to Vol Events! 🍊\n\n"
-                "What would you like to explore?"
-            )
-        }]
-
-        st.session_state.category = None
-        st.session_state.date_range = None
-        st.session_state.event_offset = 0
-
+        reset_conversation()
         st.rerun()
 
 
 # ==================================================
-# 12. MAIN CHATBOT INTERFACE
+# 13. MAIN CHATBOT INTERFACE
 # ==================================================
 
 st.title("🍊 Vol Events")
@@ -675,15 +907,18 @@ st.warning(
     "for verified event information."
 )
 
+if EVENTS_ERROR:
+    st.error(f"Event data problem: {EVENTS_ERROR}")
+
 
 # --------------------------------------------------
 # DISPLAY CHAT HISTORY
 # --------------------------------------------------
 
-for message in st.session_state.messages:
+for chat_message in st.session_state.messages:
 
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    with st.chat_message(chat_message["role"]):
+        st.markdown(chat_message["content"])
 
 
 # --------------------------------------------------
@@ -713,8 +948,7 @@ for row_start in range(0, len(buttons), 2):
                     key=f"category_{button_index}",
                     use_container_width=True
                 ):
-
-                    handle_message(label)
+                    handle_button(label)
                     st.rerun()
 
 
@@ -725,7 +959,5 @@ for row_start in range(0, len(buttons), 2):
 if prompt := st.chat_input(
     "Ask Vol Events about campus activities..."
 ):
-
     handle_message(prompt)
     st.rerun()
-
