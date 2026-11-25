@@ -234,6 +234,42 @@ def generate_response(message):
             "the official event page for participation details."
         )
 
+    # Handle greetings
+    if text in ["hi", "hello", "hey", "good morning", "good afternoon"]:
+        return (
+            "Hey there! Welcome to Vol Events! 🍊 "
+            "What kind of campus events are you interested in?"
+        )
+
+    # Identify unsupported questions
+    more_request = any(phrase in text for phrase in [
+        "more", "more options", "show more",
+        "other options", "another event"
+    ])
+
+    recognized_category = detect_category(message)
+    recognized_date = get_date_range(message)
+
+    general_event_question = (
+        "event" in text or
+        "happening" in text or
+        "going on" in text
+    )
+
+    if (
+        recognized_category == "UNCHANGED"
+        and not recognized_date
+        and not more_request
+        and not general_event_question
+    ):
+        return (
+            "I'm sorry, but I can only help with UTK campus "
+            "events and activities. I can help you explore "
+            "athletics, student organizations, arts and "
+            "entertainment, campus activities or event locations. "
+            "What would you like to explore?"
+        )
+
     # Handle requests for more recommendations
     if any(phrase in text for phrase in [
         "more", "more options", "show more",
