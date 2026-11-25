@@ -1,52 +1,115 @@
 
 [
   {
+    "title": "Tennessee Basketball vs. Louisville",
+    "category": "Athletics",
+    "days_from_today": 2,
+    "time": "7:00 PM",
+    "location": "Thompson-Boling Arena",
+    "description": "Cheer on the Tennessee Volunteers as they take on Louisville in an exciting basketball matchup."
+  },
+  {
+    "title": "Volleyball Match",
+    "category": "Athletics",
+    "days_from_today": 4,
+    "time": "6:00 PM",
+    "location": "Thompson-Boling Arena",
+    "description": "Come support Tennessee volleyball and enjoy an evening of competitive college athletics."
+  },
+  {
+    "title": "Tennessee Women's Basketball",
+    "category": "Athletics",
+    "days_from_today": 5,
+    "time": "2:00 PM",
+    "location": "Thompson-Boling Arena",
+    "description": "Support the Lady Vols in their upcoming home basketball game."
+  },
+  {
+    "title": "Campus Recreation Sports Showcase",
+    "category": "Athletics",
+    "days_from_today": 11,
+    "time": "4:00 PM",
+    "location": "TRECS",
+    "description": "Discover recreational sports, intramural opportunities and ways to stay active on campus."
+  },
+  {
     "title": "Student Organization Fair",
     "category": "Student Organizations",
     "days_from_today": 3,
     "time": "11:00 AM - 2:00 PM",
     "location": "Student Union",
-    "description": "Explore student organizations and meet representatives from campus clubs."
+    "description": "Explore student organizations and meet representatives from clubs across campus."
   },
   {
-    "title": "Volleyball Match",
-    "category": "Athletics",
-    "days_from_today": 5,
-    "time": "6:00 PM",
-    "location": "Thompson-Boling Arena",
-    "description": "Come support Tennessee athletics and cheer on the Vols."
+    "title": "Student Leadership Workshop",
+    "category": "Student Organizations",
+    "days_from_today": 8,
+    "time": "4:00 PM",
+    "location": "Student Union Room 169",
+    "description": "Learn about leadership development and ways to become more involved in student organizations."
+  },
+  {
+    "title": "Volunteer Organization Meetup",
+    "category": "Student Organizations",
+    "days_from_today": 14,
+    "time": "5:00 PM",
+    "location": "Student Union",
+    "description": "Meet students involved in community service organizations and discover volunteer opportunities."
   },
   {
     "title": "Student Music Showcase",
     "category": "Arts & Entertainment",
-    "days_from_today": 7,
+    "days_from_today": 6,
     "time": "7:00 PM",
     "location": "Student Union Auditorium",
-    "description": "Enjoy live music and performances from talented students."
+    "description": "Enjoy live music and performances from talented UTK students."
+  },
+  {
+    "title": "Campus Art Exhibition",
+    "category": "Arts & Entertainment",
+    "days_from_today": 9,
+    "time": "10:00 AM - 5:00 PM",
+    "location": "Ewing Gallery",
+    "description": "Explore artwork and creative projects from emerging student artists."
+  },
+  {
+    "title": "Theater Performance Night",
+    "category": "Arts & Entertainment",
+    "days_from_today": 16,
+    "time": "7:30 PM",
+    "location": "Clarence Brown Theatre",
+    "description": "Experience a live theatrical performance featuring student and local talent."
   },
   {
     "title": "Campus Volunteer Day",
     "category": "Campus Activities",
-    "days_from_today": 10,
+    "days_from_today": 4,
     "time": "9:00 AM - 12:00 PM",
     "location": "Pedestrian Walkway",
-    "description": "Connect with fellow volunteers and participate in community service."
+    "description": "Connect with fellow volunteers and participate in a community service project."
   },
   {
-    "title": "Student Organization Workshop",
-    "category": "Student Organizations",
-    "days_from_today": 13,
-    "time": "4:00 PM",
-    "location": "Student Union Room 169",
-    "description": "Learn about leadership and building successful student organizations."
-  },
-  {
-    "title": "Campus Guest Lecture",
+    "title": "Guest Speaker Series",
     "category": "Campus Activities",
-    "days_from_today": 16,
+    "days_from_today": 7,
     "time": "5:30 PM",
     "location": "Alumni Memorial Building",
-    "description": "Attend an educational presentation and participate in a discussion."
+    "description": "Attend an educational presentation and participate in a discussion with a guest speaker."
+  },
+  {
+    "title": "Campus Coffee and Connections",
+    "category": "Campus Activities",
+    "days_from_today": 12,
+    "time": "10:00 AM",
+    "location": "Student Union",
+    "description": "Meet other members of the UTK community in a relaxed social setting."
+  },
+  {
+    "title": "Student Wellness Workshop",
+    "category": "Campus Activities",
+    "days_from_today": 18,
+    "time": "3:00 PM",
+    "location": "Student Health Center",
+    "description": "Explore practical wellness strategies and resources available to the UTK community."
   }
 ]
-
