@@ -1,1 +1,52 @@
 
+[
+  {
+    "title": "Student Organization Fair",
+    "category": "Student Organizations",
+    "days_from_today": 3,
+    "time": "11:00 AM - 2:00 PM",
+    "location": "Student Union",
+    "description": "Explore student organizations and meet representatives from campus clubs."
+  },
+  {
+    "title": "Volleyball Match",
+    "category": "Athletics",
+    "days_from_today": 5,
+    "time": "6:00 PM",
+    "location": "Thompson-Boling Arena",
+    "description": "Come support Tennessee athletics and cheer on the Vols."
+  },
+  {
+    "title": "Student Music Showcase",
+    "category": "Arts & Entertainment",
+    "days_from_today": 7,
+    "time": "7:00 PM",
+    "location": "Student Union Auditorium",
+    "description": "Enjoy live music and performances from talented students."
+  },
+  {
+    "title": "Campus Volunteer Day",
+    "category": "Campus Activities",
+    "days_from_today": 10,
+    "time": "9:00 AM - 12:00 PM",
+    "location": "Pedestrian Walkway",
+    "description": "Connect with fellow volunteers and participate in community service."
+  },
+  {
+    "title": "Student Organization Workshop",
+    "category": "Student Organizations",
+    "days_from_today": 13,
+    "time": "4:00 PM",
+    "location": "Student Union Room 169",
+    "description": "Learn about leadership and building successful student organizations."
+  },
+  {
+    "title": "Campus Guest Lecture",
+    "category": "Campus Activities",
+    "days_from_today": 16,
+    "time": "5:30 PM",
+    "location": "Alumni Memorial Building",
+    "description": "Attend an educational presentation and participate in a discussion."
+  }
+]
+
